@@ -99,8 +99,8 @@ enum Key
 // Enumeration of models
 enum Model
 {
-    ModelMB,
-    ModelPM
+    ModelMB, // mushroom body
+    ModelPM  // perfect memory
 };
 
 // Bitset used for passing which keys have been pressed between key callback and render loop
@@ -615,7 +615,7 @@ int main(int argc, char *argv[])
 
     // Create PerfectMemory object to handle training/testing with snapshot inputs
     PerfectMemory pm(Parameters::inputWidth, Parameters::inputHeight);
-    // result of PM test - estimated heading and other info
+    // Stores result of PerfectMemory::getHeading(), includes heading and other info
     PerfectMemoryResult res;
 
     // Calculate scan parameters
@@ -625,12 +625,15 @@ int main(int argc, char *argv[])
     // When random walking, distribution of angles to turn by
     std::uniform_real_distribution<float> randomAngleOffset(-halfScanAngle, halfScanAngle);
 
+    // Log of ant's movements
     std::ofstream replay("test.csv");
 
     std::future<unsigned int> gennResult;
     while (!glfwWindowShouldClose(window)) {
         bool trainSnapshot = false;
         bool testSnapshot = false;
+        
+        // gennIdle defaults to true if using PM model so can be ignored
         const bool gennIdle = !gennResult.valid() || (gennResult.wait_for(std::chrono::seconds(0)) == future_status::ready);
 
         // Update heading and ant position based on keys
@@ -729,7 +732,11 @@ int main(int argc, char *argv[])
         }
         else if(state == State::Testing) {
             if (gennIdle) {
+                // Flag which indicates that the ant's position should be updated.
+                // This is a bad hack until we can find a better way of merging the two models!
                 bool antMove = false;
+                
+                // mushroom body
                 if (model == ModelMB) {
                                     // If the last snapshot was more familiar than the current best update
                     const unsigned int numSpikes = gennResult.get();
@@ -762,9 +769,13 @@ int main(int argc, char *argv[])
                         antMove = true;
                     }
                 }
-                else
+                // perfect memory
+                else {
+                    // Note that we are adding to the heading, not replacing it, as the heading angle is relative to the current view
                     antHeading += res.heading;
+                }
                 
+                // If we need to move forward - always true for PM model, only true after scan for MB
                 if (model == ModelPM || antMove) {
                     // Move ant forward by snapshot distance
                     antX += Parameters::snapshotDistance * sin(antHeading * degreesToRadians);
@@ -797,6 +808,7 @@ int main(int argc, char *argv[])
                             numErrors++;
                         }
                         
+                        // This only needs to be done for MB model
                         if (model == ModelMB) {
                             // Reset scan
                             antHeading -= halfScanAngle;
@@ -883,9 +895,9 @@ int main(int argc, char *argv[])
             // using perfect memory model
             if (model == ModelPM) {
                 if (trainSnapshot)
-                    pm.train(snapshotProcessor.m_FinalSnapshot);
+                    pm.addSnapshot(snapshotProcessor.m_FinalSnapshot);
                 else
-                    pm.test(snapshotProcessor.m_FinalSnapshot, res);
+                    pm.getHeading(snapshotProcessor.m_FinalSnapshot, res);
             }
             // using mushroom body model
             else {
