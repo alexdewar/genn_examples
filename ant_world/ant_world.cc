@@ -45,6 +45,7 @@
 #include "render_mesh.h"
 #include "route.h"
 #include "snapshot_processor.h"
+#include "perfect_memory.h"
 #include "world.h"
 
 //----------------------------------------------------------------------------
@@ -598,6 +599,10 @@ int main(int argc, char *argv[])
     float bestHeading = 0.0f;
     unsigned int bestTestENSpikes = std::numeric_limits<unsigned int>::max();
 
+#ifdef PERFECT_MEMORY
+    PerfectMemory pm(Parameters::inputWidth, Parameters::inputHeight);
+#endif
+
     // Calculate scan parameters
     constexpr double halfScanAngle = Parameters::scanAngle / 2.0;
     constexpr unsigned int numScanSteps = (unsigned int)round(Parameters::scanAngle / Parameters::scanStep);
@@ -707,6 +712,7 @@ int main(int argc, char *argv[])
                 }
             }
         }
+#ifndef PERFECT_MEMORY
         // Otherwise, if we're testing
         else if(state == State::Testing) {
             if(gennIdle) {
@@ -816,6 +822,7 @@ int main(int argc, char *argv[])
         else if(gennIdle && gennResult.valid()) {
             std::cout << "\t" << gennResult.get() << " EN spikes" << std::endl;
         }
+#endif
 
         // Clear colour and depth buffer
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -849,9 +856,16 @@ int main(int argc, char *argv[])
             unsigned int finalSnapshotStep;
             std::tie(finalSnapshotData, finalSnapshotStep) = snapshotProcessor.process(snapshot);
 
+#ifdef PERFECT_MEMORY
+            if (trainSnapshot)
+                pm.train(snapshotProcessor.m_FinalSnapshot);
+            else
+                pm.test(snapshotProcessor.m_FinalSnapshot);
+#else
             // Start simulation, applying reward if we are training
             gennResult = std::async(std::launch::async, presentToMB,
                                     finalSnapshotData, finalSnapshotStep, trainSnapshot);
+#endif
         }
 
         // Poll for and process events
