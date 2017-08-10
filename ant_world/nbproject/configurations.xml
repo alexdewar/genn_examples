@@ -6,6 +6,7 @@
         <in>runner.cc</in>
       </df>
       <in>ant_world.cc</in>
+      <in>perfect_memory.cc</in>
       <in>render_mesh.cc</in>
       <in>route.cc</in>
       <in>snapshot_processor.cc</in>
@@ -62,7 +63,7 @@
           </incDir>
         </ccTool>
       </item>
-      <item path="ant_world_CODE/runner.cc" ex="false" tool="1" flavor2="0">
+      <item path="ant_world_CODE/runner.cc" ex="false" tool="1" flavor2="4">
         <ccTool flags="1">
         </ccTool>
       </item>
@@ -80,6 +81,14 @@
           </preprocessorList>
         </ccTool>
       </folder>
+      <item path="perfect_memory.cc" ex="false" tool="1" flavor2="8">
+        <ccTool flags="0">
+          <incDir>
+            <pElem>../../genn/userproject/include</pElem>
+            <pElem>/usr/lib/nvidia-cuda-toolkit/include</pElem>
+          </incDir>
+        </ccTool>
+      </item>
       <item path="render_mesh.cc" ex="false" tool="1" flavor2="8">
         <ccTool flags="0">
           <incDir>
