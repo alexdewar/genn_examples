@@ -51,6 +51,8 @@ public:
 
     void test(Mat &snap, PerfectMemoryResult &res) {
 #ifdef PM_LOG
+        testCount++;
+        
         string pref = to_string(testCount) + "_";
         imwrite(PM_LOG_DIR + pref + "current.png", snap);
         
