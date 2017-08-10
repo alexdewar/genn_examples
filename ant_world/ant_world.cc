@@ -601,6 +601,7 @@ int main(int argc, char *argv[])
 
 #ifdef PERFECT_MEMORY
     PerfectMemory pm(Parameters::inputWidth, Parameters::inputHeight);
+    PerfectMemoryResult res;
 #endif
 
     // Calculate scan parameters
@@ -712,7 +713,47 @@ int main(int argc, char *argv[])
                 }
             }
         }
-#ifndef PERFECT_MEMORY
+#ifdef PERFECT_MEMORY
+        else if(state == State::Testing) {
+            // Snap ant to it's best heading
+            antHeading += res.heading;
+
+            // Move ant forward by snapshot distance
+            antX += Parameters::snapshotDistance * sin(antHeading * degreesToRadians);
+            antY += Parameters::snapshotDistance * cos(antHeading * degreesToRadians);
+
+            replay << antX << "," << antY << "," << antHeading << std::endl;
+
+            // If we've reached destination, reset state to idle
+            if(route.atDestination(antX, antY, Parameters::errorDistance)) {
+                std::cout << "Destination reached with " << numErrors << " errors" << std::endl;
+                state = State::Idle;
+            }
+            // Otherwise
+            else {
+                // Calculate distance to route
+                float distanceToRoute;
+                size_t nearestRouteSegment;
+                std::tie(distanceToRoute, nearestRouteSegment) = route.getDistanceToRoute(antX, antY);
+                std::cout << "\tDistance to route: " << distanceToRoute * 100.0f << "cm" << std::endl;
+
+                // If we are further away than error threshold
+                if(distanceToRoute > Parameters::errorDistance) {
+                    cout << "\tRESETTING ANT'S POSITION" << endl;
+                    
+                    // Snap ant to next snapshot position
+                    // **HACK** this is dubious but looks very much like what the original model was doing in figure 1i
+                    std::tie(antX, antY, antHeading) = route.getNextSnapshotPosition(nearestRouteSegment);
+
+                    // Increment error counter
+                    numErrors++;
+                }
+
+                // Take snapshot
+                testSnapshot = true;
+            }
+        }
+#else        
         // Otherwise, if we're testing
         else if(state == State::Testing) {
             if(gennIdle) {
@@ -856,11 +897,11 @@ int main(int argc, char *argv[])
             unsigned int finalSnapshotStep;
             std::tie(finalSnapshotData, finalSnapshotStep) = snapshotProcessor.process(snapshot);
 
-#ifdef PERFECT_MEMORY
+#ifdef PERFECT_MEMORY            
             if (trainSnapshot)
                 pm.train(snapshotProcessor.m_FinalSnapshot);
             else
-                pm.test(snapshotProcessor.m_FinalSnapshot);
+                pm.test(snapshotProcessor.m_FinalSnapshot, res);
 #else
             // Start simulation, applying reward if we are training
             gennResult = std::async(std::launch::async, presentToMB,

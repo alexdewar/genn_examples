@@ -2,16 +2,21 @@
 
 #define PERFECT_MEMORY
 #define PM_LOG
+#define PM_LOG_DIR "pm_dump/"
 
 #include <sys/stat.h>
 #include <iostream>
 #include <fstream>
 #include "opencv2/core/cuda.hpp"
 
-#define PM_LOG_DIR "pm_dump/"
-
 using namespace cv;
 using namespace std;
+
+struct PerfectMemoryResult {
+    double heading;
+    uint snapshot;
+    double minval;
+};
 
 class PerfectMemory {
 public:
@@ -34,7 +39,7 @@ public:
     }
 
     void train(Mat &snap) {
-        cout << "TRAIN" << endl;
+        cout << "\tAdding snapshot " << snapshots.size() << endl;
 
         Mat snap2 = snap.clone();
         snapshots.push_back(snap2);
@@ -44,14 +49,13 @@ public:
 #endif
     }
 
-    void test(Mat &snap) {
-        cout << "TEST" << endl;
-        
+    void test(Mat &snap, PerfectMemoryResult &res) {
 #ifdef PM_LOG
-        imwrite(PM_LOG_DIR "current.png", snap);
+        string pref = to_string(testCount) + "_";
+        imwrite(PM_LOG_DIR + pref + "current.png", snap);
         
         ofstream ridffile;
-        ridffile.open(PM_LOG_DIR "ridf.csv", ios::out | ios::trunc);
+        ridffile.open(PM_LOG_DIR + pref + "ridf.csv", ios::out | ios::trunc);
 #endif
         
         Mat snap2(snap.size(), snap.type());
@@ -76,29 +80,32 @@ public:
                 ridffile << sumabsdiff;
 #endif
             }
-            
 #ifdef PM_LOG
-            imwrite(PM_LOG_DIR "diff" + to_string(i) + ".png", m_diff);
             ridffile << "\n";
 #endif
         }
+        
 #ifdef PM_LOG
         ridffile.close();
-        
+
         ofstream logfile;
-        logfile.open(PM_LOG_DIR "log.txt", ios::out | ios::trunc);
+        logfile.open(PM_LOG_DIR + pref + "log.txt", ios::out | ios::trunc);
         
         double rot = 360.0 * (double)minrot / (double)snap.cols;
-        cout << "Result: " << endl
-                << "- rotation: " << rot << endl
-                << "- snap: " << minsnap << " (n=" << snapshots.size() << ")" << endl
-                << "- value: " << minval << endl << endl;
-        logfile << "Result: " << endl
+        logfile << "test" << testCount << ": " << endl
                 << "- rotation: " << rot << endl
                 << "- snap: " << minsnap << " (n=" << snapshots.size() << ")" << endl
                 << "- value: " << minval << endl << endl;
         logfile.close();
 #endif
+        double ratio = (double)minrot / (double)snap.cols;
+        res.heading = 2 * M_PI * ratio;
+        res.snapshot = minsnap;
+        res.minval = minval;
+        
+        cout << "\tHeading: " << 360.0 * ratio << " deg" << endl
+             << "\tBest-matching snapshot: " << minsnap << " (of " << snapshots.size() << ")" << endl
+             << "\tMinimum value: " << minval << endl;
     }
 
 private:
@@ -106,6 +113,9 @@ private:
     Mat m_diff;
     Mat m_tmp1;
     Mat m_tmp2;
+#ifdef PM_LOG
+    int testCount = -1;
+#endif
     
     void shiftColumns(Mat in, int numRight, Mat &out) {
         if(numRight == 0){ 
