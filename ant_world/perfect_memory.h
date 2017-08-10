@@ -1,6 +1,5 @@
 #pragma once
 
-#define PERFECT_MEMORY
 #define PM_LOG
 #define PM_LOG_DIR "pm_dump/"
 

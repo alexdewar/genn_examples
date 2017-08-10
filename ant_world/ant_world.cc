@@ -96,6 +96,13 @@ enum Key
     KeyMax
 };
 
+// Enumeration of models
+enum Model
+{
+    ModelMB,
+    ModelPM
+};
+
 // Bitset used for passing which keys have been pressed between key callback and render loop
 typedef std::bitset<KeyMax> KeyBitset;
 
@@ -504,10 +511,17 @@ int main(int argc, char *argv[])
     // Set key callback
     glfwSetKeyCallback(window, keyCallback);
 
-    // Create route object and load route file specified by command line
+    // Create route object
     Route route(0.2f);
-    if(argc > 1) {
-        route.load(argv[1]);
+    Model model = ModelMB;
+    for (int i = 1; i < argc; i++) {
+        // flag to run the program with the perfect memory model
+        if (strcmp(argv[i],"--pm") == 0) {
+            model = ModelPM;  
+        } else {
+            // otherwise load route file specified by command line
+            route.load(argv[i]);
+        }
     }
 
     // Load world into OpenGL
@@ -599,10 +613,10 @@ int main(int argc, char *argv[])
     float bestHeading = 0.0f;
     unsigned int bestTestENSpikes = std::numeric_limits<unsigned int>::max();
 
-#ifdef PERFECT_MEMORY
+    // Create PerfectMemory object to handle training/testing with snapshot inputs
     PerfectMemory pm(Parameters::inputWidth, Parameters::inputHeight);
+    // result of PM test - estimated heading and other info
     PerfectMemoryResult res;
-#endif
 
     // Calculate scan parameters
     constexpr double halfScanAngle = Parameters::scanAngle / 2.0;
@@ -713,84 +727,50 @@ int main(int argc, char *argv[])
                 }
             }
         }
-#ifdef PERFECT_MEMORY
         else if(state == State::Testing) {
-            // Snap ant to it's best heading
-            antHeading += res.heading;
+            if (gennIdle) {
+                bool antMove = false;
+                if (model == ModelMB) {
+                                    // If the last snapshot was more familiar than the current best update
+                    const unsigned int numSpikes = gennResult.get();
+                    std::cout << "\t" << numSpikes << " EN spikes" << std::endl;
 
-            // Move ant forward by snapshot distance
-            antX += Parameters::snapshotDistance * sin(antHeading * degreesToRadians);
-            antY += Parameters::snapshotDistance * cos(antHeading * degreesToRadians);
+                    // If this is an improvement on previous best spike count
+                    if(numSpikes < bestTestENSpikes) {
+                        bestHeading = antHeading;
+                        bestTestENSpikes = numSpikes;
 
-            replay << antX << "," << antY << "," << antHeading << std::endl;
+                        std::cout << "\tUpdated result: " << bestHeading << " is most familiar heading with " << bestTestENSpikes << " spikes" << std::endl;
+                    }
 
-            // If we've reached destination, reset state to idle
-            if(route.atDestination(antX, antY, Parameters::errorDistance)) {
-                std::cout << "Destination reached with " << numErrors << " errors" << std::endl;
-                state = State::Idle;
-            }
-            // Otherwise
-            else {
-                // Calculate distance to route
-                float distanceToRoute;
-                size_t nearestRouteSegment;
-                std::tie(distanceToRoute, nearestRouteSegment) = route.getDistanceToRoute(antX, antY);
-                std::cout << "\tDistance to route: " << distanceToRoute * 100.0f << "cm" << std::endl;
+                    // Go onto next scan
+                    testingScan++;
 
-                // If we are further away than error threshold
-                if(distanceToRoute > Parameters::errorDistance) {
-                    cout << "\tRESETTING ANT'S POSITION" << endl;
-                    
-                    // Snap ant to next snapshot position
-                    // **HACK** this is dubious but looks very much like what the original model was doing in figure 1i
-                    std::tie(antX, antY, antHeading) = route.getNextSnapshotPosition(nearestRouteSegment);
+                    // If scan isn't complete
+                    if(testingScan < numScanSteps) {
+                        // Scan right
+                        antHeading += Parameters::scanStep;
 
-                    // Increment error counter
-                    numErrors++;
+                        // Take test snapshot
+                        testSnapshot = true;
+                    }
+                    else {
+                        std::cout << "Scan complete: " << bestHeading << " is most familiar heading with " << bestTestENSpikes << " spikes" << std::endl;
+
+                        // Snap ant to it's best heading
+                        antHeading = bestHeading;
+                        antMove = true;
+                    }
                 }
-
-                // Take snapshot
-                testSnapshot = true;
-            }
-        }
-#else        
-        // Otherwise, if we're testing
-        else if(state == State::Testing) {
-            if(gennIdle) {
-                // If the last snapshot was more familiar than the current best update
-                const unsigned int numSpikes = gennResult.get();
-                std::cout << "\t" << numSpikes << " EN spikes" << std::endl;
-
-                // If this is an improvement on previous best spike count
-                if(numSpikes < bestTestENSpikes) {
-                    bestHeading = antHeading;
-                    bestTestENSpikes = numSpikes;
-
-                    std::cout << "\tUpdated result: " << bestHeading << " is most familiar heading with " << bestTestENSpikes << " spikes" << std::endl;
-                }
-
-                // Go onto next scan
-                testingScan++;
-
-                // If scan isn't complete
-                if(testingScan < numScanSteps) {
-                    // Scan right
-                    antHeading += Parameters::scanStep;
-
-                    // Take test snapshot
-                    testSnapshot = true;
-                }
-                else {
-                    std::cout << "Scan complete: " << bestHeading << " is most familiar heading with " << bestTestENSpikes << " spikes" << std::endl;
-
-                    // Snap ant to it's best heading
-                    antHeading = bestHeading;
-
+                else
+                    antHeading += res.heading;
+                
+                if (model == ModelPM || antMove) {
                     // Move ant forward by snapshot distance
                     antX += Parameters::snapshotDistance * sin(antHeading * degreesToRadians);
                     antY += Parameters::snapshotDistance * cos(antHeading * degreesToRadians);
 
-                    replay << antX << "," << antY << std::endl;
+                    replay << antX << "," << antY << "," << antHeading << std::endl;
 
                     // If we've reached destination, reset state to idle
                     if(route.atDestination(antX, antY, Parameters::errorDistance)) {
@@ -807,6 +787,8 @@ int main(int argc, char *argv[])
 
                         // If we are further away than error threshold
                         if(distanceToRoute > Parameters::errorDistance) {
+                            cout << "\tRESETTING ANT'S POSITION" << endl;
+
                             // Snap ant to next snapshot position
                             // **HACK** this is dubious but looks very much like what the original model was doing in figure 1i
                             std::tie(antX, antY, antHeading) = route.getNextSnapshotPosition(nearestRouteSegment);
@@ -814,11 +796,13 @@ int main(int argc, char *argv[])
                             // Increment error counter
                             numErrors++;
                         }
-
-                        // Reset scan
-                        antHeading -= halfScanAngle;
-                        testingScan = 0;
-                        bestTestENSpikes = std::numeric_limits<unsigned int>::max();
+                        
+                        if (model == ModelMB) {
+                            // Reset scan
+                            antHeading -= halfScanAngle;
+                            testingScan = 0;
+                            bestTestENSpikes = std::numeric_limits<unsigned int>::max();
+                        }
 
                         // Take snapshot
                         testSnapshot = true;
@@ -859,11 +843,10 @@ int main(int argc, char *argv[])
                 }
             }
         }
-        // Otherwise just show EN spike count for debugging purposes
-        else if(gennIdle && gennResult.valid()) {
+        // Otherwise just show EN spike count for debugging purposes 
+        else if(model == ModelMB && gennIdle && gennResult.valid()) {
             std::cout << "\t" << gennResult.get() << " EN spikes" << std::endl;
         }
-#endif
 
         // Clear colour and depth buffer
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -897,16 +880,19 @@ int main(int argc, char *argv[])
             unsigned int finalSnapshotStep;
             std::tie(finalSnapshotData, finalSnapshotStep) = snapshotProcessor.process(snapshot);
 
-#ifdef PERFECT_MEMORY            
-            if (trainSnapshot)
-                pm.train(snapshotProcessor.m_FinalSnapshot);
-            else
-                pm.test(snapshotProcessor.m_FinalSnapshot, res);
-#else
-            // Start simulation, applying reward if we are training
-            gennResult = std::async(std::launch::async, presentToMB,
-                                    finalSnapshotData, finalSnapshotStep, trainSnapshot);
-#endif
+            // using perfect memory model
+            if (model == ModelPM) {
+                if (trainSnapshot)
+                    pm.train(snapshotProcessor.m_FinalSnapshot);
+                else
+                    pm.test(snapshotProcessor.m_FinalSnapshot, res);
+            }
+            // using mushroom body model
+            else {
+                // Start simulation, applying reward if we are training
+                gennResult = std::async(std::launch::async, presentToMB,
+                                        finalSnapshotData, finalSnapshotStep, trainSnapshot);
+            }
         }
 
         // Poll for and process events
